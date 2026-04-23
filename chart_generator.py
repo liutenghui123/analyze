@@ -4,8 +4,24 @@
 
 import json
 import os
+import sys
+import shutil
+import logging
 
-def generate_pareto_chart(data: dict, title: str, output_html: str = "report.html"):
+
+def generate_pareto_chart(data: dict, title: str, output_html: str = "report.html", logger: logging.Logger = None):
+    """
+    生成HTML图表报告
+
+    参数:
+        data: 分析数据
+        title: 报告标题
+        output_html: 输出HTML文件路径
+        logger: 日志记录器（可选）
+    """
+    if logger:
+        logger.info("开始生成HTML图表报告...")
+
     ft_combo = data.get("FTdata", {}).get("fail_combo_analysis", [])
     rt_combo = data.get("RTdata", {}).get("fail_combo_analysis", [])
     ft_site = data.get("FTdata", {}).get("site_analysis", [])
@@ -21,6 +37,14 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
     ft_hw_summary = data.get("FTdata", {}).get("hw_bin_summary", [])
     rt_sw_summary = data.get("RTdata", {}).get("sw_bin_summary", [])
     rt_hw_summary = data.get("RTdata", {}).get("hw_bin_summary", [])
+
+    # 提取统计数据
+    ft_total = data.get("FTdata", {}).get("total_records", "N/A")
+    ft_failures = data.get("FTdata", {}).get("total_failures", "N/A")
+    rt_total = data.get("RTdata", {}).get("total_records", "N/A")
+    rt_failures = data.get("RTdata", {}).get("total_failures", "N/A")
+    ft_yield = data.get("merged_analysis", {}).get("首测良率(%)", "N/A")
+    rt_yield = data.get("merged_analysis", {}).get("最终良率(%)", "N/A")
 
     ft_categories = [item["组合名称"] for item in ft_combo]
     ft_counts = [item["数量"] for item in ft_combo]
@@ -80,13 +104,17 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
     rt_sw_cats, rt_sw_series = prepare_grouped_bar(rt_sw_by_site, 'SW_BIN')
     rt_hw_cats, rt_hw_series = prepare_grouped_bar(rt_hw_by_site, 'HW_BIN')
 
+    if logger:
+        logger.info(
+            f"图表数据准备完成: FT组合={len(ft_categories)}, RT组合={len(rt_categories)}, SW_Bins={len(all_sw_bins)}, HW_Bins={len(all_hw_bins)}")
+
     html_template = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>{title}</title>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="assets/echarts.min.js"></script>
     <style>
         body {{ font-family: 'Microsoft YaHei', sans-serif; margin: 20px; background-color: #f5f7fa; }}
         .container {{ max-width: 1400px; margin: 0 auto; }}
@@ -96,14 +124,42 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
         .chart {{ width: 100%; height: 500px; }}
         .flex-row {{ display: flex; gap: 20px; flex-wrap: wrap; }}
         .flex-item {{ flex: 1; min-width: 300px; }}
+        .stats-row {{ display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 30px; }}
+        .stat-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 15px 20px; flex: 1; min-width: 200px; text-align: center; }}
+        .stat-label {{ color: #666; font-size: 14px; margin-bottom: 8px; }}
+        .stat-value {{ font-size: 24px; font-weight: bold; color: #333; }}
+        .stat-value.blue {{ color: #5470c6; }}
+        .stat-value.green {{ color: #91cc75; }}
     </style>
 </head>
 <body>
 <div class="container">
-    <h1 style="text-align:center; color:#2c3e50;">📊 半导体测试数据分析报告</h1>
-    <div style="text-align:center; margin-bottom:30px;">
-        <span style="background:#5470c6; color:white; padding:5px 15px; border-radius:20px;">首测良率: {data.get('merged_analysis',{}).get('首测良率(%)', 'N/A')}%</span>
-        <span style="background:#91cc75; color:white; padding:5px 15px; border-radius:20px; margin-left:15px;">最终良率: {data.get('merged_analysis',{}).get('最终良率(%)', 'N/A')}%</span>
+    <h1 style="text-align:center; color:#2c3e50;">半导体测试数据分析报告</h1>
+    
+    <!-- 良率统计 -->
+    <div style="text-align:center; margin-bottom:20px;">
+        <span style="background:#5470c6; color:white; padding:8px 20px; border-radius:20px; font-size:16px; margin-right:15px;">首测良率: {ft_yield}%</span>
+        <span style="background:#91cc75; color:white; padding:8px 20px; border-radius:20px; font-size:16px;">最终良率: {rt_yield}%</span>
+    </div>
+
+    <!-- 详细统计数据 -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-label">首测总数量</div>
+            <div class="stat-value blue">{ft_total:,}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">首测失效数量</div>
+            <div class="stat-value" style="color:#e74c3c;">{ft_failures:,}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">终测总数量</div>
+            <div class="stat-value green">{rt_total:,}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">终测失效数量</div>
+            <div class="stat-value" style="color:#e74c3c;">{rt_failures:,}</div>
+        </div>
     </div>
 
     <!-- FTdata 柏拉图 -->
@@ -266,4 +322,59 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
 
     with open(output_html, 'w', encoding='utf-8') as f:
         f.write(html_template)
-    print(f"✅ 完整图表报告已生成: {os.path.abspath(output_html)}")
+
+    if logger:
+        logger.info(f"HTML报告已生成: {os.path.abspath(output_html)}")
+
+    # 复制assets文件夹到输出目录（确保ECharts库可用）
+    output_dir = os.path.dirname(os.path.abspath(output_html))
+    assets_src = _get_assets_path()
+    assets_dst = os.path.join(output_dir, 'assets')
+
+    if assets_src and os.path.exists(assets_src):
+        _copy_assets(assets_src, assets_dst, logger)
+    else:
+        if logger:
+            logger.warning(f"未找到assets文件夹，HTML中的ECharts可能无法加载")
+        print(f"[警告] 未找到assets文件夹，请确保report.html与assets文件夹在同一目录")
+
+    print(f"[OK] 完整图表报告已生成: {os.path.abspath(output_html)}")
+
+
+def _get_assets_path():
+    """
+    获取assets文件夹路径（支持PyInstaller打包后的环境）
+    """
+    # PyInstaller打包后，资源文件在_MEIPASS目录
+    if getattr(sys, 'frozen', False):
+        # 打包后的exe环境
+        base_path = sys._MEIPASS
+    else:
+        # 开发环境
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    assets_path = os.path.join(base_path, 'assets')
+    return assets_path if os.path.exists(assets_path) else None
+
+
+def _copy_assets(src, dst, logger=None):
+    """
+    复制assets文件夹到目标位置
+    """
+    try:
+        if os.path.exists(dst):
+            # 如果目标已存在，先删除
+            shutil.rmtree(dst)
+
+        shutil.copytree(src, dst)
+
+        if logger:
+            logger.info(f"已复制assets文件夹: {src} -> {dst}")
+        else:
+            print(f"[OK] 已复制ECharts库到输出目录")
+
+    except Exception as e:
+        if logger:
+            logger.error(f"复制assets文件夹失败: {str(e)}")
+        else:
+            print(f"[错误] 复制文件失败: {str(e)}")

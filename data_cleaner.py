@@ -1,6 +1,7 @@
 import pandas as pd
 from file_parser import is_valid_data_row, parse_date
 
+
 def map_columns(df: pd.DataFrame, format_type: str) -> pd.DataFrame:
     """
     根据格式类型将原始列名映射为标准列名：HW_BIN, SW_BIN, SITE
@@ -26,11 +27,21 @@ def map_columns(df: pd.DataFrame, format_type: str) -> pd.DataFrame:
         if 'Site' in df.columns or 'SITE' in df.columns:
             col_name = 'Site' if 'Site' in df.columns else 'SITE'
             df['SITE'] = df[col_name]
+    elif format_type == 'format4':
+        # format4: Time,Test_Count,SITE,H_bin,S_bin
+        # H_bin -> HW_BIN
+        if 'H_bin' in df.columns:
+            df['HW_BIN'] = df['H_bin']
+        # S_bin -> SW_BIN
+        if 'S_bin' in df.columns:
+            df['SW_BIN'] = df['S_bin']
+        # SITE 已经是标准名称，无需映射
     # 确保三列都存在
     for col in ['HW_BIN', 'SW_BIN', 'SITE']:
         if col not in df.columns:
             df[col] = pd.NA
     return df
+
 
 def convert_int_columns(df: pd.DataFrame, cols=['HW_BIN', 'SW_BIN', 'SITE']) -> pd.DataFrame:
     """将指定列转为可空整数类型 Int64"""
@@ -38,6 +49,7 @@ def convert_int_columns(df: pd.DataFrame, cols=['HW_BIN', 'SW_BIN', 'SITE']) -> 
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
     return df
+
 
 def parse_test_time(df: pd.DataFrame) -> pd.DataFrame:
     """尝试从 'TestTime' 或包含 'time' 的列中解析时间"""
@@ -50,6 +62,7 @@ def parse_test_time(df: pd.DataFrame) -> pd.DataFrame:
                 break
     return df
 
+
 def build_dataframe(lines: list, header_line_idx: int, original_columns: list, format_type: str) -> pd.DataFrame:
     """根据表头行和数据行构建 DataFrame，并执行基础清洗"""
     # 提取数据行
@@ -60,9 +73,12 @@ def build_dataframe(lines: list, header_line_idx: int, original_columns: list, f
     if not data_lines:
         return pd.DataFrame()
 
+    # 检测分隔符（format4 使用 Tab，其他使用逗号）
+    delimiter = '\t' if format_type == 'format4' else ','
+
     rows = []
     for line in data_lines:
-        parts = line.split(",")
+        parts = line.split(delimiter)
         if len(parts) < len(original_columns):
             parts.extend([''] * (len(original_columns) - len(parts)))
         elif len(parts) > len(original_columns):

@@ -205,30 +205,54 @@ python ui.py
 
 ## 输入数据格式
 
-### 支持的CSV格式
+### 支持的文件格式
 
-工具自动识别以下3种常见ATE测试设备CSV格式：
+工具自动识别以下4种常见ATE测试设备数据格式：
 
-#### Format 1 - 标准格式
+#### Format 1 - 标准CSV格式
 
 ```csv
 TestTime#,LotId#,WaferId,XAdr,YAdr,Site#,HBin,SBin,...
 2024/01/15 10:30,LOT001,WAF01,10,20,1,1,100,...
 ```
 
-#### Format 2 - 简化格式
+#### Format 2 - 简化CSV格式
 
 ```csv
 TestTime,X_POS,Y_POS,SITE,HW_BIN,SW_BIN,...
 2024-01-15 10:30:00,10,20,1,1,100,...
 ```
 
-#### Format 3 - 扩展格式
+#### Format 3 - 扩展CSV格式
 
 ```csv
 TestTime,LotId,WaferId,XAdr,YAdr,Site,HBIN,SBIN,...
 01/15/2024 10:30,LOT001,WAF01,10,20,1,1,100,...
 ```
+
+#### Format 4 - Tab分隔格式（.xls文本文件）
+
+```
+Customer:	XH
+DEVICE:	CSU18M68-QFN16
+LOT_ID:	2604222
+...
+Time	Test_Count	SITE	H_bin	S_bin	temp_sensor	...
+2026-03-17 07:54:21	1	0	1	1	23.88	...
+```
+
+**特点**：
+
+- 文件扩展名为`.xls`，但实际是Tab分隔的文本文件
+- 前8行为元数据（Customer、DEVICE、LOT_ID等）
+- 第9行为表头行
+- 数据从第10行开始
+- 支持100+列测试参数
+
+### 支持的文件扩展名
+
+- `.csv` - 逗号分隔值文件
+- `.xls` - Tab分隔文本文件（非Excel二进制格式）
 
 ### 关键列说明
 
@@ -402,6 +426,51 @@ logging.basicConfig(level=logging.DEBUG)
 
 ---
 
+## 打包部署
+
+### 打包为exe文件
+
+项目支持打包为独立的Windows可执行文件，无需安装Python环境。
+
+#### 快速打包
+
+双击运行 `build.bat` 脚本，或手动执行：
+
+```bash
+# 1. 安装PyInstaller
+pip install pyinstaller
+
+# 2. 打包GUI版本
+pyinstaller --clean Fenxi8.spec
+
+# 3. 打包CLI版本
+pyinstaller --clean Fenxi8_CLI.spec
+```
+
+#### 生成的文件
+
+打包完成后，在 `dist/` 目录下生成：
+
+- **Fenxi8.exe** (约69MB) - GUI图形界面版本
+- **Fenxi8_CLI.exe** (约66MB) - CLI命令行版本
+
+#### 分发使用
+
+1. 将exe文件复制到任意位置
+2. 创建 `FTdata/` 和 `RTdata/` 文件夹并放入CSV文件
+3. 运行exe程序进行分析
+4. 查看生成的 `report.html` 报告
+
+#### ECharts库说明
+
+- 程序会**自动复制** `assets/echarts.min.js` 到输出目录
+- HTML报告使用**本地ECharts库**，离线可用
+- 无需网络连接即可显示图表
+
+详细使用说明请查看 `打包说明.md`
+
+---
+
 ## 许可证
 
 本项目仅供学习和内部使用。
@@ -410,7 +479,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## 联系方式
 
-如有问题或建议，请联系项目开发团队。
+如有问题或建议，请联系信息中心刘腾辉。
 
 ---
 

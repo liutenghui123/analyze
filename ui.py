@@ -8,6 +8,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
 import os
 import json
+import logging
 from datetime import datetime
 import sys
 
@@ -21,6 +22,7 @@ except ImportError:
 from folder_processor import process_folder
 from merge_analyzer import compute_merged_analysis
 from chart_generator import generate_pareto_chart
+from logger_config import setup_logger
 
 
 class AnalysisUI:
@@ -62,10 +64,12 @@ class AnalysisUI:
         title_frame = ttk.Frame(main_frame)
         title_frame.pack(fill=tk.X, pady=(0, 15))
 
-        title_label = ttk.Label(title_frame, text="半导体测试数据分析工具", font=('微软雅黑', 16, 'bold'))
+        title_label = ttk.Label(
+            title_frame, text="半导体测试数据分析工具", font=('微软雅黑', 16, 'bold'))
         title_label.pack(side=tk.LEFT)
 
-        help_btn = ttk.Button(title_frame, text="❓ 帮助", width=8, command=self.show_help)
+        help_btn = ttk.Button(title_frame, text="❓ 帮助",
+                              width=8, command=self.show_help)
         help_btn.pack(side=tk.RIGHT)
 
         # 数据源配置框架
@@ -76,15 +80,19 @@ class AnalysisUI:
         row1 = ttk.Frame(source_frame)
         row1.pack(fill=tk.X, pady=3)
         ttk.Label(row1, text="FTdata 文件夹:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(row1, textvariable=self.ft_path, width=45).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        ttk.Button(row1, text="浏览...", command=self.select_ft).pack(side=tk.LEFT, padx=2)
+        ttk.Entry(row1, textvariable=self.ft_path, width=45).pack(
+            side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Button(row1, text="浏览...", command=self.select_ft).pack(
+            side=tk.LEFT, padx=2)
 
         # RTdata
         row2 = ttk.Frame(source_frame)
         row2.pack(fill=tk.X, pady=3)
         ttk.Label(row2, text="RTdata 文件夹:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(row2, textvariable=self.rt_path, width=45).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        ttk.Button(row2, text="浏览...", command=self.select_rt).pack(side=tk.LEFT, padx=2)
+        ttk.Entry(row2, textvariable=self.rt_path, width=45).pack(
+            side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Button(row2, text="浏览...", command=self.select_rt).pack(
+            side=tk.LEFT, padx=2)
 
         # 输出配置框架
         output_frame = ttk.LabelFrame(main_frame, text="输出配置", padding="10")
@@ -93,9 +101,12 @@ class AnalysisUI:
         row3 = ttk.Frame(output_frame)
         row3.pack(fill=tk.X, pady=3)
         ttk.Label(row3, text="输出文件夹:", width=12).pack(side=tk.LEFT)
-        ttk.Entry(row3, textvariable=self.out_dir, width=45).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        ttk.Button(row3, text="浏览...", command=self.select_output_dir).pack(side=tk.LEFT, padx=2)
-        ttk.Label(output_frame, text="报告将自动保存为 report.html", foreground="gray").pack(anchor=tk.W, padx=(65,0), pady=(0,5))
+        ttk.Entry(row3, textvariable=self.out_dir, width=45).pack(
+            side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Button(row3, text="浏览...", command=self.select_output_dir).pack(
+            side=tk.LEFT, padx=2)
+        ttk.Label(output_frame, text="报告将自动保存为 report.html", foreground="gray").pack(
+            anchor=tk.W, padx=(65, 0), pady=(0, 5))
 
         # API 配置框架（可选）
         api_frame = ttk.LabelFrame(main_frame, text="AI分析", padding="10")
@@ -104,35 +115,40 @@ class AnalysisUI:
         # 启用复选框
         cb = ttk.Checkbutton(api_frame, text="勾选后将数据发送到以下API地址", variable=self.send_api,
                              command=self.toggle_api_entry)
-        cb.pack(anchor=tk.W, pady=(0,5))
+        cb.pack(anchor=tk.W, pady=(0, 5))
 
         # API URL 输入行
         row_api = ttk.Frame(api_frame)
         row_api.pack(fill=tk.X, pady=3)
         ttk.Label(row_api, text="API URL:", width=12).pack(side=tk.LEFT)
-        self.api_entry = ttk.Entry(row_api, textvariable=self.api_url, width=45, state='disabled')
+        self.api_entry = ttk.Entry(
+            row_api, textvariable=self.api_url, width=45, state='disabled')
         self.api_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
         # 状态提示
         if not REQUESTS_AVAILABLE:
             ttk.Label(api_frame, text="⚠ 未安装 requests 库，无法发送 API 请求。请运行: pip install requests",
-                      foreground="red").pack(anchor=tk.W, padx=(65,0), pady=5)
+                      foreground="red").pack(anchor=tk.W, padx=(65, 0), pady=5)
 
         # 操作按钮
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(pady=15)
-        self.run_btn = ttk.Button(btn_frame, text="开始分析", command=self.run_analysis, width=15)
+        self.run_btn = ttk.Button(
+            btn_frame, text="开始分析", command=self.run_analysis, width=15)
         self.run_btn.pack(side=tk.LEFT, padx=10)
-        ttk.Button(btn_frame, text="退出", command=self.root.quit, width=8).pack(side=tk.LEFT)
+        ttk.Button(btn_frame, text="退出", command=self.root.quit,
+                   width=8).pack(side=tk.LEFT)
 
         # 状态栏和进度条
         status_frame = ttk.Frame(main_frame)
-        status_frame.pack(fill=tk.X, pady=(10,0))
+        status_frame.pack(fill=tk.X, pady=(10, 0))
         self.status_var = tk.StringVar(value="就绪")
-        status_label = ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_label = ttk.Label(
+            status_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        self.progress = ttk.Progressbar(status_frame, mode='indeterminate', length=150)
+        self.progress = ttk.Progressbar(
+            status_frame, mode='indeterminate', length=150)
         self.progress.pack(side=tk.RIGHT, padx=5)
         self.progress.pack_forget()
 
@@ -159,7 +175,8 @@ class AnalysisUI:
         help_win.grab_set()            # 模态效果
 
         # 显示文本区域
-        text_area = scrolledtext.ScrolledText(help_win, wrap=tk.WORD, font=('微软雅黑', 9))
+        text_area = scrolledtext.ScrolledText(
+            help_win, wrap=tk.WORD, font=('微软雅黑', 9))
         text_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         text_area.insert(tk.END, content)
         text_area.config(state=tk.DISABLED)  # 只读
@@ -236,7 +253,8 @@ class AnalysisUI:
             messagebox.showerror("错误", "请填写 API URL 或取消勾选发送选项")
             return
         if send_api and not REQUESTS_AVAILABLE:
-            messagebox.showerror("错误", "缺少 requests 库，无法发送 API 请求。\n请安装: pip install requests")
+            messagebox.showerror(
+                "错误", "缺少 requests 库，无法发送 API 请求。\n请安装: pip install requests")
             return
 
         out_file = os.path.join(out_dir, "report.html")
@@ -249,24 +267,47 @@ class AnalysisUI:
         self.root.update()
 
         # 启动后台线程
-        thread = threading.Thread(target=self._analysis_worker, args=(ft_dir, rt_dir, out_file, send_api, api_url))
+        thread = threading.Thread(target=self._analysis_worker, args=(
+            ft_dir, rt_dir, out_file, out_dir, send_api, api_url))
         thread.daemon = True
         thread.start()
 
-    def _analysis_worker(self, ft_dir, rt_dir, out_file, send_api, api_url):
+    def _analysis_worker(self, ft_dir, rt_dir, out_file, out_dir, send_api, api_url):
+        # 初始化日志（在输出目录生成日志文件）
+        logger, log_file = setup_logger(log_dir=out_dir)
+        logger.info("="*60)
+        logger.info("Fenxi8 UI - 开始分析")
+        logger.info(f"FTdata: {ft_dir}")
+        logger.info(f"RTdata: {rt_dir}")
+        logger.info(f"输出目录: {out_dir}")
+        logger.info("="*60)
+
         try:
             # 处理数据
-            ft_result = process_folder(ft_dir)
-            rt_result = process_folder(rt_dir)
+            logger.info("开始处理 FTdata...")
+            ft_result = process_folder(ft_dir, logger=logger)
 
             if "error" in ft_result:
+                logger.error(f"FTdata 处理失败: {ft_result['error']}")
                 self._show_error(f"FTdata 处理失败: {ft_result['error']}")
                 return
+
+            logger.info(f"FTdata 处理完成: {ft_result['total_records']} 条记录")
+
+            logger.info("开始处理 RTdata...")
+            rt_result = process_folder(rt_dir, logger=logger)
+
             if "error" in rt_result:
+                logger.error(f"RTdata 处理失败: {rt_result['error']}")
                 self._show_error(f"RTdata 处理失败: {rt_result['error']}")
                 return
 
+            logger.info(f"RTdata 处理完成: {rt_result['total_records']} 条记录")
+
             merged = compute_merged_analysis(ft_result, rt_result)
+            logger.info(
+                f"合并分析完成: 首测良率={merged.get('首测良率(%)', 'N/A')}%, 最终良率={merged.get('最终良率(%)', 'N/A')}%")
+
             full_data = {
                 "FTdata": ft_result,
                 "RTdata": rt_result,
@@ -274,19 +315,36 @@ class AnalysisUI:
             }
 
             # 生成 HTML 报告
-            generate_pareto_chart(full_data, title="半导体测试数据分析报告", output_html=out_file)
+            logger.info("开始生成HTML报告...")
+            generate_pareto_chart(
+                full_data, title="半导体测试数据分析报告", output_html=out_file, logger=logger)
 
             # 如果需要发送 API
             api_success = False
             if send_api and api_url:
+                logger.info(f"开始发送数据到API: {api_url}")
                 api_success = self._send_json_to_api(full_data, api_url)
+                if api_success:
+                    logger.info("API发送成功")
+
+            logger.info("="*60)
+            logger.info("分析完成!")
+            logger.info(f"日志文件: {log_file}")
+            logger.info(f"报告文件: {out_file}")
+            logger.info("="*60)
 
             if api_success:
-                self._show_success(f"分析完成！\n报告已保存至: {out_file}\nJSON 数据已发送至 API")
+                self._show_success(
+                    f"分析完成！\n报告已保存至: {out_file}\n日志已保存至: {log_file}\nJSON 数据已发送至 API")
             else:
-                self._show_success(f"分析完成！\n报告已保存至: {out_file}")
+                self._show_success(
+                    f"分析完成！\n报告已保存至: {out_file}\n日志已保存至: {log_file}")
+
         except Exception as e:
-            self._show_error(f"发生错误: {str(e)}")
+            import traceback
+            logger.error(f"程序执行出错: {str(e)}")
+            logger.error(traceback.format_exc())
+            self._show_error(f"发生错误: {str(e)}\n\n详细日志请查看:\n{log_file}")
         finally:
             self.root.after(0, self._reset_ui)
 
@@ -300,19 +358,23 @@ class AnalysisUI:
             }
             headers = {'Content-Type': 'application/json'}
             # 设置超时 30 秒
-            response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+            response = requests.post(
+                api_url, json=payload, headers=headers, timeout=30)
             if response.status_code in (200, 201, 202):
                 return True
             else:
                 self.root.after(0, lambda: messagebox.showwarning("API 警告",
-                                    f"API 返回非成功状态码: {response.status_code}\n{response.text[:200]}"))
+                                                                  f"API 返回非成功状态码: {response.status_code}\n{response.text[:200]}"))
                 return False
         except requests.exceptions.Timeout:
-            self.root.after(0, lambda: messagebox.showerror("API 错误", "请求超时 (30秒)"))
+            self.root.after(0, lambda: messagebox.showerror(
+                "API 错误", "请求超时 (30秒)"))
         except requests.exceptions.ConnectionError:
-            self.root.after(0, lambda: messagebox.showerror("API 错误", "无法连接到服务器，请检查 URL 和网络"))
+            self.root.after(0, lambda: messagebox.showerror(
+                "API 错误", "无法连接到服务器，请检查 URL 和网络"))
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("API 错误", f"发送失败: {str(e)}"))
+            self.root.after(0, lambda: messagebox.showerror(
+                "API 错误", f"发送失败: {str(e)}"))
         return False
 
     def _reset_ui(self):
