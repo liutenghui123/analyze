@@ -410,7 +410,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## 联系方式
 
-如有问题或建议，请联系项目开发团队。
+如有问题或建议，请联系liutenghui0826@outlook.com
 
 ---
 
