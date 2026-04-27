@@ -1,0 +1,52 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+block_cipher = None
+
+a = Analysis(
+    ['ui.py'],  # GUI版本作为主入口
+    pathex=[],
+    binaries=[],
+    datas=[
+        ('assets', 'assets'),  # 包含ECharts库
+        ('README.md', '.'),    # 包含帮助文档
+    ],
+    hiddenimports=[
+        'pandas',
+        'numpy',
+        'requests',
+        'tkinter',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='Fenxi8',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,  # GUI模式，不显示控制台
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,  # 可以添加图标文件，如: icon='icon.ico'
+)
