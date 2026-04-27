@@ -343,18 +343,20 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
 
 def _get_assets_path():
     """
-    获取assets文件夹路径（支持PyInstaller打包后的环境）
+    获取assets文件夹路径（支持多位置查找）
     """
-    # PyInstaller打包后，资源文件在_MEIPASS目录
-    if getattr(sys, 'frozen', False):
-        # 打包后的exe环境
-        base_path = sys._MEIPASS
-    else:
-        # 开发环境
-        base_path = os.path.dirname(os.path.abspath(__file__))
+    # 1. 开发环境：脚本同级目录
+    assets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
+    if os.path.exists(assets_path):
+        return assets_path
 
-    assets_path = os.path.join(base_path, 'assets')
-    return assets_path if os.path.exists(assets_path) else None
+    # 2. PyInstaller打包环境：_MEIPASS目录
+    if getattr(sys, 'frozen', False):
+        assets_path = os.path.join(sys._MEIPASS, 'assets')
+        if os.path.exists(assets_path):
+            return assets_path
+
+    return None
 
 
 def _copy_assets(src, dst, logger=None):

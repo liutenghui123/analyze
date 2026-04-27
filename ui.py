@@ -1,6 +1,6 @@
 """
 UI 模块 - 基于 tkinter/ttk 的图形界面，允许用户选择 FTdata/RTdata 文件夹和输出文件夹，
-并可选将分析结果 JSON 发送到 API 接口。
+并可选将分析结果 JSON 发送到 Webhook 接口。
 """
 
 import tkinter as tk
@@ -15,6 +15,9 @@ import sys
 # 尝试导入 requests，如果没有则提示安装
 try:
     import requests
+    # 禁用 SSL 警告（内网 webhook 通常使用自签名证书）
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
@@ -108,26 +111,32 @@ class AnalysisUI:
         ttk.Label(output_frame, text="报告将自动保存为 report.html", foreground="gray").pack(
             anchor=tk.W, padx=(65, 0), pady=(0, 5))
 
-        # API 配置框架（可选）
-        api_frame = ttk.LabelFrame(main_frame, text="AI分析", padding="10")
+        # Webhook 配置框架（可选）
+        api_frame = ttk.LabelFrame(
+            main_frame, text="Webhook数据推送", padding="10")
         api_frame.pack(fill=tk.X, pady=5)
 
         # 启用复选框
-        cb = ttk.Checkbutton(api_frame, text="勾选后将数据发送到以下API地址", variable=self.send_api,
+        cb = ttk.Checkbutton(api_frame, text="勾选后将分析结果推送到Webhook地址", variable=self.send_api,
                              command=self.toggle_api_entry)
         cb.pack(anchor=tk.W, pady=(0, 5))
 
-        # API URL 输入行
+        # Webhook URL 输入行（默认填入webhook地址）
         row_api = ttk.Frame(api_frame)
         row_api.pack(fill=tk.X, pady=3)
-        ttk.Label(row_api, text="API URL:", width=12).pack(side=tk.LEFT)
+        ttk.Label(row_api, text="Webhook URL:", width=12).pack(side=tk.LEFT)
         self.api_entry = ttk.Entry(
             row_api, textvariable=self.api_url, width=45, state='disabled')
         self.api_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
+        # 设置默认webhook地址
+        if not self.api_url.get():
+            self.api_url.set(
+                "http://192.168.58.34/triggers/webhook/qst-2Yjz7Tn43N0IRbvo8ILK")
+
         # 状态提示
         if not REQUESTS_AVAILABLE:
-            ttk.Label(api_frame, text="⚠ 未安装 requests 库，无法发送 API 请求。请运行: pip install requests",
+            ttk.Label(api_frame, text="⚠ 未安装 requests 库，无法发送 Webhook 请求。请运行: pip install requests",
                       foreground="red").pack(anchor=tk.W, padx=(65, 0), pady=5)
 
         # 操作按钮
@@ -250,11 +259,11 @@ class AnalysisUI:
                 messagebox.showerror("错误", f"无法创建输出文件夹：{e}")
                 return
         if send_api and not api_url:
-            messagebox.showerror("错误", "请填写 API URL 或取消勾选发送选项")
+            messagebox.showerror("错误", "请填写 Webhook URL 或取消勾选推送选项")
             return
         if send_api and not REQUESTS_AVAILABLE:
             messagebox.showerror(
-                "错误", "缺少 requests 库，无法发送 API 请求。\n请安装: pip install requests")
+                "错误", "缺少 requests 库，无法发送 Webhook 请求。\n请安装: pip install requests")
             return
 
         out_file = os.path.join(out_dir, "report.html")
@@ -319,13 +328,21 @@ class AnalysisUI:
             generate_pareto_chart(
                 full_data, title="半导体测试数据分析报告", output_html=out_file, logger=logger)
 
-            # 如果需要发送 API
-            api_success = False
+            # 如果需要发送 Webhook
+            webhook_success = False
             if send_api and api_url:
-                logger.info(f"开始发送数据到API: {api_url}")
-                api_success = self._send_json_to_api(full_data, api_url)
-                if api_success:
-                    logger.info("API发送成功")
+                logger.info(f"开始发送数据到Webhook: {api_url}")
+                webhook_success = self._send_json_to_api(
+                    full_data, api_url, logger)
+                if webhook_success:
+                    logger.info("✓ Webhook推送成功")
+                else:
+                    logger.warning("✗ Webhook推送失败（详情请见上方错误信息）")
+            else:
+                if not send_api:
+                    logger.info("Webhook推送未启用（复选框未勾选）")
+                elif not api_url:
+                    logger.warning("Webhook URL为空，跳过推送")
 
             logger.info("="*60)
             logger.info("分析完成!")
@@ -333,9 +350,9 @@ class AnalysisUI:
             logger.info(f"报告文件: {out_file}")
             logger.info("="*60)
 
-            if api_success:
+            if webhook_success:
                 self._show_success(
-                    f"分析完成！\n报告已保存至: {out_file}\n日志已保存至: {log_file}\nJSON 数据已发送至 API")
+                    f"分析完成！\n报告已保存至: {out_file}\n日志已保存至: {log_file}\nJSON 数据已推送到 Webhook")
             else:
                 self._show_success(
                     f"分析完成！\n报告已保存至: {out_file}\n日志已保存至: {log_file}")
@@ -348,33 +365,99 @@ class AnalysisUI:
         finally:
             self.root.after(0, self._reset_ui)
 
-    def _send_json_to_api(self, data, api_url):
-        """发送 JSON 数据到指定 API，返回是否成功"""
+    def _send_json_to_api(self, data, api_url, logger=None):
+        """发送 JSON 数据到指定 Webhook，返回是否成功
+
+        数据格式：
+        POST {api_url}
+        Content-Type: application/json
+        Body: {
+            "query": "{ ...JSON字符串格式的分析数据... }"
+        }
+
+        参数:
+            data: 要发送的数据（字典）
+            api_url: Webhook URL
+            logger: 日志记录器（可选）
+        """
+        # 如果没有传入logger，使用模块级别的logger
+        if logger is None:
+            logger = logging.getLogger(__name__)
+
         try:
-            # 可选：添加时间戳标识
+            # 构建符合webhook要求的数据格式
+            # 注意：query参数必须是JSON字符串，不能是字典对象
             payload = {
-                "timestamp": datetime.now().isoformat(),
-                "data": data
+                "query": json.dumps(data, ensure_ascii=False)  # 将数据转换为JSON字符串
             }
-            headers = {'Content-Type': 'application/json'}
-            # 设置超时 30 秒
+
+            headers = {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Fenxi8/1.0'
+            }
+
+            payload_size = len(json.dumps(payload))
+            logger.info(f"准备发送数据到Webhook: {api_url}")
+            logger.info(
+                f"数据包大小: {payload_size:,} bytes ({payload_size/1024:.2f} KB)")
+            logger.debug(
+                f"Payload结构: query参数类型={type(payload['query']).__name__}")
+
+            # 设置超时 30 秒，禁用SSL验证（内网地址）
+            logger.info("正在发送POST请求...")
             response = requests.post(
-                api_url, json=payload, headers=headers, timeout=30)
-            if response.status_code in (200, 201, 202):
+                api_url,
+                json=payload,
+                headers=headers,
+                timeout=30,
+                verify=False  # 内网webhook通常使用自签名证书
+            )
+
+            logger.info(f"Webhook响应状态码: {response.status_code}")
+            logger.info(f"Webhook响应内容: {response.text[:500]}")
+
+            if response.status_code in (200, 201, 202, 204):
+                logger.info("Webhook推送成功")
                 return True
             else:
-                self.root.after(0, lambda: messagebox.showwarning("API 警告",
-                                                                  f"API 返回非成功状态码: {response.status_code}\n{response.text[:200]}"))
+                error_msg = f"Webhook返回非成功状态码: {response.status_code}\n响应: {response.text[:200]}"
+                logger.error(error_msg)
+                self.root.after(0, lambda: messagebox.showwarning(
+                    "Webhook 警告", error_msg))
                 return False
+
         except requests.exceptions.Timeout:
+            error_msg = "请求超时 (30秒)，请检查网络连接和Webhook服务状态"
+            logger.error(f"Webhook超时: {error_msg}")
             self.root.after(0, lambda: messagebox.showerror(
-                "API 错误", "请求超时 (30秒)"))
-        except requests.exceptions.ConnectionError:
+                "Webhook 超时错误", error_msg))
+
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"无法连接到Webhook服务器\nURL: {api_url}\n错误: {str(e)}"
+            logger.error(f"Webhook连接错误: {error_msg}")
             self.root.after(0, lambda: messagebox.showerror(
-                "API 错误", "无法连接到服务器，请检查 URL 和网络"))
+                "Webhook 连接错误", error_msg))
+
+        except requests.exceptions.InvalidURL as e:
+            error_msg = f"无效的Webhook URL: {api_url}\n请检查URL格式是否正确\n错误: {str(e)}"
+            logger.error(f"Webhook URL无效: {error_msg}")
+            self.root.after(0, lambda: messagebox.showerror(
+                "Webhook URL 错误", error_msg))
+
+        except requests.exceptions.RequestException as e:
+            error_msg = f"HTTP请求异常: {type(e).__name__}: {str(e)}"
+            logger.error(error_msg)
+            self.root.after(0, lambda: messagebox.showerror(
+                "Webhook HTTP 错误", error_msg))
+
         except Exception as e:
+            import traceback
+            error_msg = f"发送数据到Webhook失败: {type(e).__name__}: {str(e)}"
+            logger.error(error_msg)
+            logger.error(f"异常堆栈:\n{traceback.format_exc()}")
             self.root.after(0, lambda: messagebox.showerror(
-                "API 错误", f"发送失败: {str(e)}"))
+                "Webhook 错误", error_msg))
+
         return False
 
     def _reset_ui(self):
