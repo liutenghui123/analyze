@@ -9,6 +9,60 @@ import shutil
 import logging
 
 
+def _prepare_hourly_yield_chart_data(hourly_data):
+    """
+    将 hourly_site_yield 数据转换为 ECharts 折线图所需格式。
+    返回 (time_labels, series)
+      - time_labels: X轴时间标签列表（缩短格式 "MM-DD HH:MM"）
+      - series: [{'name': 'Site 0', 'data': [90.91, 89.90, ...]}, ...]
+    """
+    if not hourly_data:
+        return [], []
+
+    # 收集去重有序的时间窗口
+    time_labels = []
+    seen = set()
+    for row in hourly_data:
+        key = row['time_window_start']
+        if key not in seen:
+            seen.add(key)
+            time_labels.append(key)
+
+    # 收集所有 Site 并排序
+    sites = sorted(set(row['site'] for row in hourly_data))
+
+    # 构建 {(time, site): yield_rate} 映射
+    data_map = {}
+    for row in hourly_data:
+        data_map[(row['time_window_start'], row['site'])] = row['yield_rate']
+
+    # 按 Site 生成各系列数据（无数据点用 None 断开折线）
+    series = []
+    for site in sites:
+        values = [data_map.get((t, site), None) for t in time_labels]
+        series.append({
+            'name': f'Site {site}',
+            'data': values
+        })
+
+    # 缩短时间标签: "2026-03-14 05:33:58" -> "03-14 05:33"
+    short_labels = []
+    for t in time_labels:
+        parts = t.split(' ')
+        if len(parts) == 2:
+            date_parts = parts[0].split('-')
+            time_parts = parts[1].split(':')
+            if len(date_parts) >= 3 and len(time_parts) >= 2:
+                short_labels.append(
+                    f"{date_parts[1]}-{date_parts[2]} {time_parts[0]}:{time_parts[1]}")
+            else:
+                short_labels.append(t)
+        else:
+            short_labels.append(t)
+
+    return short_labels, series
+
+
 def generate_pareto_chart(data: dict, title: str, output_html: str = "report.html", logger: logging.Logger = None):
     """
     生成HTML图表报告
@@ -104,6 +158,14 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
     rt_sw_cats, rt_sw_series = prepare_grouped_bar(rt_sw_by_site, 'SW_BIN')
     rt_hw_cats, rt_hw_series = prepare_grouped_bar(rt_hw_by_site, 'HW_BIN')
 
+    # 按小时 Site 良率折线图数据
+    ft_hourly = data.get("FTdata", {}).get("hourly_site_yield", [])
+    rt_hourly = data.get("RTdata", {}).get("hourly_site_yield", [])
+    ft_hourly_labels, ft_hourly_series = _prepare_hourly_yield_chart_data(
+        ft_hourly)
+    rt_hourly_labels, rt_hourly_series = _prepare_hourly_yield_chart_data(
+        rt_hourly)
+
     if logger:
         logger.info(
             f"图表数据准备完成: FT组合={len(ft_categories)}, RT组合={len(rt_categories)}, SW_Bins={len(all_sw_bins)}, HW_Bins={len(all_hw_bins)}")
@@ -197,6 +259,20 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
             <div class="flex-item"><div id="chart-site-ft" style="height:400px;"></div></div>
             <div class="flex-item"><div id="chart-site-rt" style="height:400px;"></div></div>
         </div>
+    </div>
+
+    <!-- FTdata 按小时 Site 良率趋势 -->
+    <div class="chart-card">
+        <div class="chart-title">🔵 首测 (FTdata) - 按小时各 Site 良率趋势</div>
+        <div class="subtitle">X轴: 时间窗口 (1小时间隔)；Y轴: 良率 (%)；不同 Site 用不同颜色区分</div>
+        <div id="chart-ft-hourly-yield" class="chart" style="height:550px;"></div>
+    </div>
+
+    <!-- RTdata 按小时 Site 良率趋势 -->
+    <div class="chart-card">
+        <div class="chart-title">🟢 终测 (RTdata) - 按小时各 Site 良率趋势</div>
+        <div class="subtitle">X轴: 时间窗口 (1小时间隔)；Y轴: 良率 (%)；不同 Site 用不同颜色区分</div>
+        <div id="chart-rt-hourly-yield" class="chart" style="height:550px;"></div>
     </div>
 
     <!-- FTdata 各站点 SW_BIN 分布（分组柱状图） -->
@@ -301,6 +377,67 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
         window.addEventListener('resize', () => chart.resize());
     }}
 
+    // 按小时 Site 良率折线图
+    var siteColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'];
+    function drawHourlyYield(domId, labels, seriesData) {{
+        if (!labels.length || !seriesData.length) {{
+            document.getElementById(domId).innerHTML = '<div style="text-align:center;padding:50px;">无数据</div>';
+            return;
+        }}
+        var chart = echarts.init(document.getElementById(domId));
+        var series = seriesData.map(function(s, idx) {{
+            return {{
+                name: s.name,
+                type: 'line',
+                data: s.data,
+                smooth: false,
+                symbol: 'circle',
+                symbolSize: 6,
+                lineStyle: {{ width: 2, color: siteColors[idx % siteColors.length] }},
+                itemStyle: {{ color: siteColors[idx % siteColors.length] }},
+                connectNulls: false
+            }};
+        }});
+        chart.setOption({{
+            tooltip: {{
+                trigger: 'axis',
+                formatter: function(params) {{
+                    var res = params[0].axisValue + '<br/>';
+                    for (var i = 0; i < params.length; i++) {{
+                        var val = params[i].value;
+                        if (val !== null && val !== undefined) {{
+                            res += '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'
+                                + params[i].color + ';margin-right:5px;"></span>'
+                                + params[i].seriesName + ': ' + val + '%<br/>';
+                        }}
+                    }}
+                    return res;
+                }}
+            }},
+            legend: {{ data: seriesData.map(s => s.name), top: 0 }},
+            grid: {{ left: 60, right: 40, bottom: 80, top: 50 }},
+            xAxis: {{
+                type: 'category',
+                data: labels,
+                axisLabel: {{ rotate: 45, interval: 'auto', fontSize: 11 }},
+                boundaryGap: false
+            }},
+            yAxis: {{
+                type: 'value',
+                name: '良率 (%)',
+                min: function(value) {{ return Math.max(0, Math.floor(value.min - 5)); }},
+                max: 100,
+                axisLabel: {{ formatter: '{{value}}%' }}
+            }},
+            dataZoom: [
+                {{ type: 'inside', start: 0, end: 100 }},
+                {{ type: 'slider', start: 0, end: 100, bottom: 10 }}
+            ],
+            series: series
+        }});
+        window.addEventListener('resize', () => chart.resize());
+    }}
+
     // 绘制所有图表
     drawPareto('chart-ft', {json.dumps(ft_categories)}, {json.dumps(ft_counts)}, {json.dumps(ft_cum_pct)}, '#5470c6');
     drawPareto('chart-rt', {json.dumps(rt_categories)}, {json.dumps(rt_counts)}, {json.dumps(rt_cum_pct)}, '#91cc75');
@@ -310,6 +447,9 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
     
     drawSiteYield('chart-site-ft', {json.dumps(ft_site)}, '首测 各站点良率');
     drawSiteYield('chart-site-rt', {json.dumps(rt_site)}, '终测 各站点良率');
+
+    drawHourlyYield('chart-ft-hourly-yield', {json.dumps(ft_hourly_labels)}, {json.dumps(ft_hourly_series)});
+    drawHourlyYield('chart-rt-hourly-yield', {json.dumps(rt_hourly_labels)}, {json.dumps(rt_hourly_series)});
 
     drawGroupedBar('chart-ft-sw', {json.dumps(ft_sw_cats)}, {json.dumps(ft_sw_series)});
     drawGroupedBar('chart-ft-hw', {json.dumps(ft_hw_cats)}, {json.dumps(ft_hw_series)});
@@ -346,7 +486,8 @@ def _get_assets_path():
     获取assets文件夹路径（支持多位置查找）
     """
     # 1. 开发环境：脚本同级目录
-    assets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
+    assets_path = os.path.join(os.path.dirname(
+        os.path.abspath(__file__)), 'assets')
     if os.path.exists(assets_path):
         return assets_path
 
@@ -364,6 +505,12 @@ def _copy_assets(src, dst, logger=None):
     复制assets文件夹到目标位置
     """
     try:
+        # 源路径和目标路径相同时，无需复制
+        if os.path.normpath(os.path.abspath(src)) == os.path.normpath(os.path.abspath(dst)):
+            if logger:
+                logger.info(f"assets源路径与目标路径相同，跳过复制: {src}")
+            return
+
         if os.path.exists(dst):
             # 如果目标已存在，先删除
             shutil.rmtree(dst)

@@ -9,6 +9,33 @@ from chart_generator import generate_pareto_chart
 from logger_config import setup_logger
 
 
+def print_hourly_site_yield(label: str, result: dict):
+    """将按小时统计的 Site 良品率输出到控制台"""
+    hourly_data = result.get("hourly_site_yield", [])
+    if not hourly_data:
+        print(f"\n[{label}] 无按小时 Site 良品率数据")
+        return
+
+    print(f"\n{'='*90}")
+    print(f"[{label}] 按小时 Site 良品率统计")
+    print(f"{'='*90}")
+    print(f"{'段':>3} | {'时间窗口起始':<22} | {'时间窗口结束':<22} | {'Site':>4} | {'总数':>6} | {'Bin1数':>6} | {'良率(%)':>8}")
+    print(f"{'-'*3}-+-{'-'*22}-+-{'-'*22}-+-{'-'*4}-+-{'-'*6}-+-{'-'*6}-+-{'-'*8}")
+
+    current_window = None
+    for row in hourly_data:
+        window_key = (row['segment'], row['time_window_start'])
+        if current_window is not None and window_key != current_window:
+            print(
+                f"{'-'*3}-+-{'-'*22}-+-{'-'*22}-+-{'-'*4}-+-{'-'*6}-+-{'-'*6}-+-{'-'*8}")
+        current_window = window_key
+
+        print(f"{row['segment']:>3} | {row['time_window_start']:<22} | {row['time_window_end']:<22} | {row['site']:>4} | {row['total']:>6} | {row['bin1_count']:>6} | {row['yield_rate']:>7.2f}%")
+
+    print(f"{'='*90}")
+    print(f"共 {len(hourly_data)} 条记录\n")
+
+
 def main(output_dir=None) -> dict:
     """
     主函数 - 命令行模式
@@ -42,6 +69,9 @@ def main(output_dir=None) -> dict:
         logger.info(
             f"FTdata 处理完成: {ft_result['total_records']} 条记录, {ft_result['total_failures']} 条失败")
 
+        # 控制台输出 FTdata 按小时 Site 良品率
+        print_hourly_site_yield("FTdata", ft_result)
+
         # 处理RTdata
         logger.info("开始处理 RTdata 文件夹...")
         rt_result = process_folder("RTdata", logger=logger)
@@ -52,6 +82,9 @@ def main(output_dir=None) -> dict:
 
         logger.info(
             f"RTdata 处理完成: {rt_result['total_records']} 条记录, {rt_result['total_failures']} 条失败")
+
+        # 控制台输出 RTdata 按小时 Site 良品率
+        print_hourly_site_yield("RTdata", rt_result)
 
         # 合并分析
         logger.info("开始合并分析...")

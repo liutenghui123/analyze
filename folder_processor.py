@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 from file_parser import detect_header_format, read_csv_file
 from data_cleaner import build_dataframe
-from analyzer import compute_sw_bin_by_site, compute_hw_bin_by_site, compute_fail_combos, compute_site_stats
+from analyzer import compute_sw_bin_by_site, compute_hw_bin_by_site, compute_fail_combos, compute_site_stats, compute_hourly_site_yield
 
 
 def extract_product_name(lines, first_file_flag):
@@ -30,13 +30,14 @@ def extract_product_name(lines, first_file_flag):
     return None
 
 
-def process_folder(folder_path: str, logger: logging.Logger = None) -> dict:
+def process_folder(folder_path: str, logger: logging.Logger = None, progress_callback=None) -> dict:
     """
     处理单个文件夹，返回分析结果字典
 
     参数:
         folder_path: 文件夹路径
         logger: 日志记录器（可选）
+        progress_callback: 进度回调函数（可选），签名为 callback(current, total, filename)
 
     返回:
         dict: 分析结果
@@ -68,6 +69,8 @@ def process_folder(folder_path: str, logger: logging.Logger = None) -> dict:
         try:
             if logger:
                 logger.debug(f"解析文件 [{idx+1}/{len(file_paths)}]: {file_name}")
+            if progress_callback:
+                progress_callback(idx + 1, len(file_paths), file_name)
 
             lines = read_csv_file(file_path)   # 行列表
 
@@ -157,6 +160,11 @@ def process_folder(folder_path: str, logger: logging.Logger = None) -> dict:
     fail_combos = compute_fail_combos(fail_df, fail_total)
     site_stats = compute_site_stats(df, fail_df, fail_total)
 
+    # 按小时统计不同 Site 良品率
+    hourly_site_yield = compute_hourly_site_yield(df)
+    if logger:
+        logger.info(f"按小时良品率统计: {len(hourly_site_yield)} 条记录")
+
     if logger:
         logger.info(
             f"分析完成: SW_BIN类型={len(sw_bin_summary)}, HW_BIN类型={len(hw_bin_summary)}, 组合Top15={len(fail_combos)}, 站点数={len(site_stats)}")
@@ -171,5 +179,6 @@ def process_folder(folder_path: str, logger: logging.Logger = None) -> dict:
         "sw_bin_summary": sw_bin_summary.to_dict('records'),
         "hw_bin_summary": hw_bin_summary.to_dict('records'),
         "fail_combo_analysis": fail_combos.to_dict('records'),
-        "site_analysis": site_stats.to_dict('records')
+        "site_analysis": site_stats.to_dict('records'),
+        "hourly_site_yield": hourly_site_yield,
     }

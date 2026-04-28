@@ -32,7 +32,7 @@ class AnalysisUI:
     def __init__(self, root):
         self.root = root
         self.root.title("半导体测试数据分析工具")
-        self.root.geometry("650x500")
+        self.root.geometry("650x560")
         self.root.resizable(True, True)
 
         # 设置样式
@@ -148,7 +148,7 @@ class AnalysisUI:
         ttk.Button(btn_frame, text="退出", command=self.root.quit,
                    width=8).pack(side=tk.LEFT)
 
-        # 状态栏和进度条
+        # 状态栏和进度条（始终可见）
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X, pady=(10, 0))
         self.status_var = tk.StringVar(value="就绪")
@@ -156,10 +156,15 @@ class AnalysisUI:
             status_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # 进度百分比标签
+        self.progress_pct_var = tk.StringVar(value="")
+        self.progress_pct_label = ttk.Label(
+            status_frame, textvariable=self.progress_pct_var, width=6, anchor=tk.E)
+        self.progress_pct_label.pack(side=tk.RIGHT, padx=(5, 0))
+
         self.progress = ttk.Progressbar(
-            status_frame, mode='indeterminate', length=150)
+            status_frame, mode='determinate', length=150, maximum=100)
         self.progress.pack(side=tk.RIGHT, padx=5)
-        self.progress.pack_forget()
 
     def show_help(self):
         """显示帮助窗口，内容为 README.md 文件"""
@@ -235,6 +240,14 @@ class AnalysisUI:
         if path:
             self.out_dir.set(path)
 
+    def _update_progress(self, value, text):
+        """从后台线程安全更新进度条和状态文字"""
+        def _do():
+            self.progress['value'] = value
+            self.progress_pct_var.set(f"{int(value)}%")
+            self.status_var.set(text)
+        self.root.after(0, _do)
+
     def run_analysis(self):
         ft_dir = self.ft_path.get().strip()
         rt_dir = self.rt_path.get().strip()
@@ -270,9 +283,9 @@ class AnalysisUI:
 
         # 禁用界面
         self.run_btn.config(state=tk.DISABLED)
-        self.progress.pack(side=tk.RIGHT, padx=5)
-        self.progress.start(10)
-        self.status_var.set("正在分析，请稍候...")
+        self.progress['value'] = 0
+        self.progress_pct_var.set("0%")
+        self.status_var.set("准备开始分析...")
         self.root.update()
 
         # 启动后台线程
@@ -282,6 +295,7 @@ class AnalysisUI:
         thread.start()
 
     def _analysis_worker(self, ft_dir, rt_dir, out_file, out_dir, send_api, api_url):
+        # 进度分配：FTdata 0-40%, RTdata 40-75%, 合并分析 75-85%, 生成报告 85-95%, Webhook 95-100%
         # 初始化日志（在输出目录生成日志文件）
         logger, log_file = setup_logger(log_dir=out_dir)
         logger.info("="*60)
@@ -292,27 +306,50 @@ class AnalysisUI:
         logger.info("="*60)
 
         try:
-            # 处理数据
+            # ---- 阶段1: FTdata (0% ~ 40%) ----
+            self._update_progress(0, "正在解析 FTdata 文件...")
             logger.info("开始处理 FTdata...")
-            ft_result = process_folder(ft_dir, logger=logger)
+
+            def ft_progress(current, total, filename):
+                pct = int(current / total * 40)
+                self._update_progress(
+                    pct, f"解析 FTdata [{current}/{total}]: {filename}")
+
+            ft_result = process_folder(
+                ft_dir, logger=logger, progress_callback=ft_progress)
 
             if "error" in ft_result:
                 logger.error(f"FTdata 处理失败: {ft_result['error']}")
                 self._show_error(f"FTdata 处理失败: {ft_result['error']}")
                 return
 
+            self._update_progress(
+                40, f"FTdata 完成: {ft_result['total_records']} 条记录")
             logger.info(f"FTdata 处理完成: {ft_result['total_records']} 条记录")
 
+            # ---- 阶段2: RTdata (40% ~ 75%) ----
+            self._update_progress(40, "正在解析 RTdata 文件...")
             logger.info("开始处理 RTdata...")
-            rt_result = process_folder(rt_dir, logger=logger)
+
+            def rt_progress(current, total, filename):
+                pct = 40 + int(current / total * 35)
+                self._update_progress(
+                    pct, f"解析 RTdata [{current}/{total}]: {filename}")
+
+            rt_result = process_folder(
+                rt_dir, logger=logger, progress_callback=rt_progress)
 
             if "error" in rt_result:
                 logger.error(f"RTdata 处理失败: {rt_result['error']}")
                 self._show_error(f"RTdata 处理失败: {rt_result['error']}")
                 return
 
+            self._update_progress(
+                75, f"RTdata 完成: {rt_result['total_records']} 条记录")
             logger.info(f"RTdata 处理完成: {rt_result['total_records']} 条记录")
 
+            # ---- 阶段3: 合并分析 (75% ~ 85%) ----
+            self._update_progress(78, "正在合并分析...")
             merged = compute_merged_analysis(ft_result, rt_result)
             logger.info(
                 f"合并分析完成: 首测良率={merged.get('首测良率(%)', 'N/A')}%, 最终良率={merged.get('最终良率(%)', 'N/A')}%")
@@ -323,26 +360,31 @@ class AnalysisUI:
                 "merged_analysis": merged
             }
 
-            # 生成 HTML 报告
+            # ---- 阶段4: 生成 HTML 报告 (85% ~ 95%) ----
+            self._update_progress(85, "正在生成HTML图表报告...")
             logger.info("开始生成HTML报告...")
             generate_pareto_chart(
                 full_data, title="半导体测试数据分析报告", output_html=out_file, logger=logger)
+            self._update_progress(95, "HTML报告生成完成")
 
-            # 如果需要发送 Webhook
+            # ---- 阶段5: Webhook (95% ~ 100%) ----
             webhook_success = False
             if send_api and api_url:
+                self._update_progress(95, "正在推送数据到 Webhook...")
                 logger.info(f"开始发送数据到Webhook: {api_url}")
                 webhook_success = self._send_json_to_api(
                     full_data, api_url, logger)
                 if webhook_success:
-                    logger.info("✓ Webhook推送成功")
+                    logger.info("Webhook推送成功")
                 else:
-                    logger.warning("✗ Webhook推送失败（详情请见上方错误信息）")
+                    logger.warning("Webhook推送失败（详情请见上方错误信息）")
             else:
                 if not send_api:
                     logger.info("Webhook推送未启用（复选框未勾选）")
                 elif not api_url:
                     logger.warning("Webhook URL为空，跳过推送")
+
+            self._update_progress(100, "分析完成!")
 
             logger.info("="*60)
             logger.info("分析完成!")
@@ -462,9 +504,9 @@ class AnalysisUI:
 
     def _reset_ui(self):
         self.progress.stop()
-        self.progress.pack_forget()
+        self.progress['value'] = 0
+        self.progress_pct_var.set("")
         self.run_btn.config(state=tk.NORMAL)
-        self.status_var.set("就绪")
 
     def _show_error(self, msg):
         self.root.after(0, lambda: messagebox.showerror("错误", msg))
