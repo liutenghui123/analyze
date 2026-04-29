@@ -31,9 +31,17 @@ from logger_config import setup_logger
 class AnalysisUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("半导体测试数据分析工具")
+        self.root.title("异常单数据分析工具")
         self.root.geometry("650x560")
         self.root.resizable(True, True)
+
+        # 设置窗口图标
+        icon_path = os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), 'assets', 'logo.ico')
+        if not os.path.exists(icon_path) and getattr(sys, 'frozen', False):
+            icon_path = os.path.join(sys._MEIPASS, 'assets', 'logo.ico')
+        if os.path.exists(icon_path):
+            self.root.iconbitmap(icon_path)
 
         # 设置样式
         style = ttk.Style()
@@ -68,7 +76,7 @@ class AnalysisUI:
         title_frame.pack(fill=tk.X, pady=(0, 15))
 
         title_label = ttk.Label(
-            title_frame, text="半导体测试数据分析工具", font=('微软雅黑', 16, 'bold'))
+            title_frame, text="异常单测试数据分析工具", font=('微软雅黑', 16, 'bold'))
         title_label.pack(side=tk.LEFT)
 
         help_btn = ttk.Button(title_frame, text="❓ 帮助",
@@ -82,7 +90,7 @@ class AnalysisUI:
         # FTdata
         row1 = ttk.Frame(source_frame)
         row1.pack(fill=tk.X, pady=3)
-        ttk.Label(row1, text="FTdata 文件夹:", width=12).pack(side=tk.LEFT)
+        ttk.Label(row1, text="FTdata（首测） 文件夹:", width=12).pack(side=tk.LEFT)
         ttk.Entry(row1, textvariable=self.ft_path, width=45).pack(
             side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         ttk.Button(row1, text="浏览...", command=self.select_ft).pack(
@@ -91,7 +99,8 @@ class AnalysisUI:
         # RTdata
         row2 = ttk.Frame(source_frame)
         row2.pack(fill=tk.X, pady=3)
-        ttk.Label(row2, text="RTdata 文件夹:", width=12).pack(side=tk.LEFT)
+        ttk.Label(row2, text="RTdata（终测） 文件夹-可为空:",
+                  width=12).pack(side=tk.LEFT)
         ttk.Entry(row2, textvariable=self.rt_path, width=45).pack(
             side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         ttk.Button(row2, text="浏览...", command=self.select_rt).pack(
@@ -113,11 +122,11 @@ class AnalysisUI:
 
         # Webhook 配置框架（可选）
         api_frame = ttk.LabelFrame(
-            main_frame, text="Webhook数据推送", padding="10")
+            main_frame, text="Webhook数据推送（暂不支持）", padding="10")
         api_frame.pack(fill=tk.X, pady=5)
 
         # 启用复选框
-        cb = ttk.Checkbutton(api_frame, text="勾选后将分析结果推送到Webhook地址", variable=self.send_api,
+        cb = ttk.Checkbutton(api_frame, text="勾选后将分析结果推送到Webhook地址（暂无规则库）", variable=self.send_api,
                              command=self.toggle_api_entry)
         cb.pack(anchor=tk.W, pady=(0, 5))
 
@@ -226,12 +235,12 @@ class AnalysisUI:
             self.api_entry.config(state='disabled')
 
     def select_ft(self):
-        path = filedialog.askdirectory(title="选择 FTdata 文件夹")
+        path = filedialog.askdirectory(title="选择 FTdata 文件夹（首测）")
         if path:
             self.ft_path.set(path)
 
     def select_rt(self):
-        path = filedialog.askdirectory(title="选择 RTdata 文件夹")
+        path = filedialog.askdirectory(title="选择 RTdata 文件夹（终测）")
         if path:
             self.rt_path.set(path)
 
@@ -259,8 +268,8 @@ class AnalysisUI:
         if not ft_dir or not os.path.isdir(ft_dir):
             messagebox.showerror("错误", "请选择有效的 FTdata 文件夹")
             return
-        if not rt_dir or not os.path.isdir(rt_dir):
-            messagebox.showerror("错误", "请选择有效的 RTdata 文件夹")
+        if rt_dir and not os.path.isdir(rt_dir):
+            messagebox.showerror("错误", "RTdata 文件夹路径无效")
             return
         if not out_dir:
             messagebox.showerror("错误", "请选择输出文件夹")
@@ -328,25 +337,30 @@ class AnalysisUI:
             logger.info(f"FTdata 处理完成: {ft_result['total_records']} 条记录")
 
             # ---- 阶段2: RTdata (40% ~ 75%) ----
-            self._update_progress(40, "正在解析 RTdata 文件...")
-            logger.info("开始处理 RTdata...")
+            rt_result = None
+            if rt_dir and os.path.isdir(rt_dir):
+                self._update_progress(40, "正在解析 RTdata 文件...")
+                logger.info("开始处理 RTdata...")
 
-            def rt_progress(current, total, filename):
-                pct = 40 + int(current / total * 35)
-                self._update_progress(
-                    pct, f"解析 RTdata [{current}/{total}]: {filename}")
+                def rt_progress(current, total, filename):
+                    pct = 40 + int(current / total * 35)
+                    self._update_progress(
+                        pct, f"解析 RTdata [{current}/{total}]: {filename}")
 
-            rt_result = process_folder(
-                rt_dir, logger=logger, progress_callback=rt_progress)
+                rt_result = process_folder(
+                    rt_dir, logger=logger, progress_callback=rt_progress)
 
-            if "error" in rt_result:
-                logger.error(f"RTdata 处理失败: {rt_result['error']}")
-                self._show_error(f"RTdata 处理失败: {rt_result['error']}")
-                return
-
-            self._update_progress(
-                75, f"RTdata 完成: {rt_result['total_records']} 条记录")
-            logger.info(f"RTdata 处理完成: {rt_result['total_records']} 条记录")
+                if "error" in rt_result:
+                    logger.warning(f"RTdata 处理失败: {rt_result['error']}")
+                    rt_result = None
+                else:
+                    self._update_progress(
+                        75, f"RTdata 完成: {rt_result['total_records']} 条记录")
+                    logger.info(
+                        f"RTdata 处理完成: {rt_result['total_records']} 条记录")
+            else:
+                self._update_progress(75, "无 RTdata，跳过终测分析")
+                logger.info("RTdata 为空，跳过终测分析")
 
             # ---- 阶段3: 合并分析 (75% ~ 85%) ----
             self._update_progress(78, "正在合并分析...")
@@ -356,7 +370,7 @@ class AnalysisUI:
 
             full_data = {
                 "FTdata": ft_result,
-                "RTdata": rt_result,
+                "RTdata": rt_result or {},
                 "merged_analysis": merged
             }
 

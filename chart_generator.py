@@ -93,12 +93,13 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
     rt_hw_summary = data.get("RTdata", {}).get("hw_bin_summary", [])
 
     # 提取统计数据
-    ft_total = data.get("FTdata", {}).get("total_records", "N/A")
-    ft_failures = data.get("FTdata", {}).get("total_failures", "N/A")
-    rt_total = data.get("RTdata", {}).get("total_records", "N/A")
-    rt_failures = data.get("RTdata", {}).get("total_failures", "N/A")
+    ft_total = data.get("FTdata", {}).get("total_records", 0)
+    ft_failures = data.get("FTdata", {}).get("total_failures", 0)
+    rt_total = data.get("RTdata", {}).get("total_records", 0)
+    rt_failures = data.get("RTdata", {}).get("total_failures", 0)
     ft_yield = data.get("merged_analysis", {}).get("首测良率(%)", "N/A")
     rt_yield = data.get("merged_analysis", {}).get("最终良率(%)", "N/A")
+    file_metadata = data.get("merged_analysis", {}).get("file_metadata") or {}
 
     ft_categories = [item["组合名称"] for item in ft_combo]
     ft_counts = [item["数量"] for item in ft_combo]
@@ -132,10 +133,14 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
         {'name': '(首测)', 'data': ft_sw_counts},
         {'name': ' (终测)', 'data': rt_sw_counts}
     ]
+    sw_recovery = [round((ft - rt) / ft * 100, 2) if ft >
+                   0 else None for ft, rt in zip(ft_sw_counts, rt_sw_counts)]
     hw_compare_series = [
         {'name': ' (首测)', 'data': ft_hw_counts},
         {'name': ' (终测)', 'data': rt_hw_counts}
     ]
+    hw_recovery = [round((ft - rt) / ft * 100, 2) if ft >
+                   0 else None for ft, rt in zip(ft_hw_counts, rt_hw_counts)]
 
     # 按站点的分组柱状图数据准备（复用之前的函数）
     def prepare_grouped_bar(site_dict, bin_key):
@@ -170,6 +175,22 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
         logger.info(
             f"图表数据准备完成: FT组合={len(ft_categories)}, RT组合={len(rt_categories)}, SW_Bins={len(all_sw_bins)}, HW_Bins={len(all_hw_bins)}")
 
+    # 构建文件元数据 HTML
+    metadata_html = ''
+    if file_metadata:
+        m = file_metadata
+
+        def _mc(k, v):
+            return f'<div><span style="color:#888;">{k}:</span> <b>{v}</b></div>'
+        gs = 'display:grid;grid-template-columns:1fr 1fr 1fr;padding:4px 0;'
+        metadata_html = (
+            '<div style="background:white;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);padding:14px 24px;margin-bottom:30px;font-size:14px;color:#333;">'
+            f'<div style="padding:4px 0;">{_mc("Customer", m.get("Customer", ""))}</div>'
+            f'<div style="{gs}">{_mc("DEVICE", m.get("DEVICE", ""))}{_mc("IntDevice", m.get("IntDevice", ""))}{_mc("PO_NO", m.get("PO_NO", ""))}</div>'
+            f'<div style="{gs}">{_mc("LOT_ID", m.get("LOT_ID", ""))}{_mc("Program", m.get("Program", ""))}{_mc("ATE_NO", m.get("ATE_NO", ""))}</div>'
+            '</div>'
+        )
+
     html_template = f"""
 <!DOCTYPE html>
 <html>
@@ -196,7 +217,7 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
 </head>
 <body>
 <div class="container">
-    <h1 style="text-align:center; color:#2c3e50;">半导体测试数据分析报告</h1>
+    <h1 style="text-align:center; color:#2c3e50;">异常单测试数据分析报告</h1>
     
     <!-- 良率统计 -->
     <div style="text-align:center; margin-bottom:20px;">
@@ -223,6 +244,8 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
             <div class="stat-value" style="color:#e74c3c;">{rt_failures:,}</div>
         </div>
     </div>
+
+    {metadata_html}
 
     <!-- FTdata 柏拉图 -->
     <div class="chart-card">
@@ -333,44 +356,69 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
         if (!siteData || siteData.length === 0) return;
         var sites = siteData.map(item => 'SITE ' + item.SITE);
         var yields = siteData.map(item => item['良率(%)']);
+        var totals = siteData.map(item => item['总数']);
+        var fails = siteData.map(item => item['不良数量']);
         var chart = echarts.init(document.getElementById(domId));
         chart.setOption({{
             title: {{ text: title, left: 'center', top: 0 }},
-            tooltip: {{ trigger: 'axis', formatter: '{{b}}<br/>良率: {{c}}%' }},
+            tooltip: {{ trigger: 'axis', formatter: function(params) {{
+                var idx = params[0].dataIndex;
+                return params[0].name + '<br/>良率: ' + yields[idx] + '%<br/>总数: ' + totals[idx] + '<br/>不良: ' + fails[idx];
+            }} }},
             xAxis: {{ type: 'category', data: sites, axisLabel: {{ rotate: 30 }} }},
             yAxis: {{ type: 'value', name: '良率 (%)', min: 0, max: 100, axisLabel: {{ formatter: '{{value}}%' }} }},
             series: [{{
                 type: 'bar', data: yields, itemStyle: {{ color: '#91cc75', borderRadius: [5,5,0,0] }},
                 label: {{ show: true, position: 'top', formatter: '{{c}}%' }}
+            }}, {{
+                type: 'bar', data: yields, barGap: '-100%', silent: true,
+                itemStyle: {{ color: 'transparent' }},
+                label: {{ show: true, position: 'inside', color: '#fff', fontSize: 13, fontWeight: 'bold',
+                    formatter: function(params) {{ return totals[params.dataIndex]; }}
+                }}
             }}]
         }});
         window.addEventListener('resize', () => chart.resize());
     }}
 
     // 通用分组柱状图
-    function drawGroupedBar(domId, categories, seriesData) {{
+    function drawGroupedBar(domId, categories, seriesData, recoveryData) {{
         if (!categories.length || !seriesData.length) {{
             document.getElementById(domId).innerHTML = '<div style="text-align:center;padding:50px;">无数据</div>';
             return;
         }}
         var chart = echarts.init(document.getElementById(domId));
-        chart.setOption({{
-            tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }}, formatter: function(params) {{
-                var res = params[0].axisValue + '<br/>';
-                for (var i = 0; i < params.length; i++) {{
-                    res += params[i].seriesName + ': ' + params[i].value + '<br/>';
+        var tooltipFn = function(params) {{
+            var res = params[0].axisValue + '<br/>';
+            for (var i = 0; i < params.length; i++) {{
+                res += params[i].seriesName + ': ' + params[i].value + '<br/>';
+            }}
+            if (recoveryData) {{
+                var v = recoveryData[params[0].dataIndex];
+                if (v !== null) res += '<span style="color:' + (v >= 0 ? '#91cc75' : '#ee6666') + '">回收比例: ' + v + '%</span>';
+            }}
+            return res;
+        }};
+        var xAxisCfg = [{{ type: 'category', data: categories, axisLabel: {{ rotate: 45, interval: 0 }} }}];
+        if (recoveryData) {{
+            xAxisCfg.push({{
+                type: 'category', position: 'bottom', offset: 36,
+                data: recoveryData.map(function(v) {{ return v === null ? '-' : v + '%'; }}),
+                axisLine: {{ show: false }}, axisTick: {{ show: false }},
+                axisLabel: {{ interval: 0, rotate: 45,
+                    color: function(val, idx) {{ var v = recoveryData[idx]; return v !== null && v >= 0 ? '#E8890C' : '#ee6666'; }},
+                    fontWeight: 'bold', fontSize: 11
                 }}
-                return res;
-            }} }},
+            }});
+        }}
+        chart.setOption({{
+            tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }}, formatter: tooltipFn }},
             legend: {{ data: seriesData.map(s => s.name), top: 0 }},
-            grid: {{ containLabel: true, bottom: 30, top: 50 }},
-            xAxis: {{ type: 'category', data: categories, axisLabel: {{ rotate: 45, interval: 0 }} }},
+            grid: {{ containLabel: true, bottom: recoveryData ? 70 : 30, top: 50 }},
+            xAxis: xAxisCfg,
             yAxis: {{ type: 'value', name: '不良数量' }},
             series: seriesData.map(s => ({{
-                name: s.name,
-                type: 'bar',
-                data: s.data,
-                barGap: 0.1,
+                name: s.name, type: 'bar', data: s.data, barGap: 0.1,
                 label: {{ show: true, position: 'top' }}
             }}))
         }});
@@ -442,8 +490,8 @@ def generate_pareto_chart(data: dict, title: str, output_html: str = "report.htm
     drawPareto('chart-ft', {json.dumps(ft_categories)}, {json.dumps(ft_counts)}, {json.dumps(ft_cum_pct)}, '#5470c6');
     drawPareto('chart-rt', {json.dumps(rt_categories)}, {json.dumps(rt_counts)}, {json.dumps(rt_cum_pct)}, '#91cc75');
     
-    drawGroupedBar('chart-sw-compare', {json.dumps(all_sw_bins)}, {json.dumps(sw_compare_series)});
-    drawGroupedBar('chart-hw-compare', {json.dumps(all_hw_bins)}, {json.dumps(hw_compare_series)});
+    drawGroupedBar('chart-sw-compare', {json.dumps(all_sw_bins)}, {json.dumps(sw_compare_series)}, {json.dumps(sw_recovery)});
+    drawGroupedBar('chart-hw-compare', {json.dumps(all_hw_bins)}, {json.dumps(hw_compare_series)}, {json.dumps(hw_recovery)});
     
     drawSiteYield('chart-site-ft', {json.dumps(ft_site)}, '首测 各站点良率');
     drawSiteYield('chart-site-rt', {json.dumps(rt_site)}, '终测 各站点良率');

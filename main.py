@@ -73,18 +73,21 @@ def main(output_dir=None) -> dict:
         print_hourly_site_yield("FTdata", ft_result)
 
         # 处理RTdata
-        logger.info("开始处理 RTdata 文件夹...")
-        rt_result = process_folder("RTdata", logger=logger)
+        rt_result = None
+        if os.path.isdir("RTdata"):
+            logger.info("开始处理 RTdata 文件夹...")
+            rt_result = process_folder("RTdata", logger=logger)
 
-        if "error" in rt_result:
-            logger.error(f"RTdata 处理失败: {rt_result['error']}")
-            return rt_result
-
-        logger.info(
-            f"RTdata 处理完成: {rt_result['total_records']} 条记录, {rt_result['total_failures']} 条失败")
-
-        # 控制台输出 RTdata 按小时 Site 良品率
-        print_hourly_site_yield("RTdata", rt_result)
+            if "error" in rt_result:
+                logger.warning(f"RTdata 处理失败: {rt_result['error']}")
+                rt_result = None
+            else:
+                logger.info(
+                    f"RTdata 处理完成: {rt_result['total_records']} 条记录, {rt_result['total_failures']} 条失败")
+                # 控制台输出 RTdata 按小时 Site 良品率
+                print_hourly_site_yield("RTdata", rt_result)
+        else:
+            logger.info("RTdata 文件夹不存在，跳过终测分析")
 
         # 合并分析
         logger.info("开始合并分析...")
@@ -95,7 +98,7 @@ def main(output_dir=None) -> dict:
         # 组装结果
         result = {
             "FTdata": ft_result,
-            "RTdata": rt_result,
+            "RTdata": rt_result or {},
             "merged_analysis": merged
         }
 

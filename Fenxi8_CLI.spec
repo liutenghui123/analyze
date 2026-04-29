@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+import os
+SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))
 block_cipher = None
 
 a = Analysis(
@@ -47,4 +48,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=os.path.join(SPEC_DIR, 'assets', 'logo.ico'),
 )

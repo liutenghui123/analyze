@@ -30,6 +30,20 @@ def extract_product_name(lines, first_file_flag):
     return None
 
 
+def extract_file_metadata(lines, header_line_idx):
+    """从文件表头之前的行中提取元数据（Key:\\tValue 格式）"""
+    metadata = {}
+    keys = ['Customer', 'DEVICE', 'IntDevice',
+            'PO_NO', 'LOT_ID', 'Program', 'ATE_NO']
+    for line in lines[:header_line_idx]:
+        parts = line.split('\t', 1)
+        if len(parts) == 2:
+            key = parts[0].rstrip(':')
+            if key in keys:
+                metadata[key] = parts[1].strip()
+    return metadata if metadata else None
+
+
 def process_folder(folder_path: str, logger: logging.Logger = None, progress_callback=None) -> dict:
     """
     处理单个文件夹，返回分析结果字典
@@ -44,6 +58,7 @@ def process_folder(folder_path: str, logger: logging.Logger = None, progress_cal
     """
     all_dfs = []
     internal_model_number = None
+    file_metadata = None
     skipped_files = []
 
     if logger:
@@ -101,6 +116,10 @@ def process_folder(folder_path: str, logger: logging.Logger = None, progress_cal
                     logger.warning(f"文件 {file_name}: 未识别的格式，跳过")
                 skipped_files.append(file_name)
                 continue
+
+            # 提取文件元数据（仅第一个文件）
+            if idx == 0 and file_metadata is None:
+                file_metadata = extract_file_metadata(lines, header_line_idx)
 
             df = build_dataframe(lines, header_line_idx,
                                  original_columns, format_type)
@@ -181,4 +200,5 @@ def process_folder(folder_path: str, logger: logging.Logger = None, progress_cal
         "fail_combo_analysis": fail_combos.to_dict('records'),
         "site_analysis": site_stats.to_dict('records'),
         "hourly_site_yield": hourly_site_yield,
+        "file_metadata": file_metadata,
     }
